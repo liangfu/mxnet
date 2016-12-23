@@ -206,12 +206,12 @@ if(USE_CUDA)
     set(CUDA_cuda_LIBRARY "${CUDA_nvrtc_LIBRARY}/../cuda.lib")
     list(APPEND mxnet_LINKER_LIBS ${CUDA_cuda_LIBRARY})
   else(MSVC)
-    list(APPEND mxnet_LINKER_LIBS nvrtc cuda)
+    list(APPEND mxnet_LINKER_LIBS cuda) #nvrtc 
     link_directories("${CUDA_TOOLKIT_ROOT_DIR}/lib64")
   endif()
   list(APPEND SOURCE ${cuda_objs} ${CUDA})
   add_definitions(-DMXNET_USE_CUDA=1)
-  add_definitions(-DMXNET_USE_NVRTC=1)
+  add_definitions(-DMXNET_USE_NVRTC=0)
 endif()
 
 # unsupported: if caffe is a subdirectory of mxnet, load its CMakeLists.txt as well
