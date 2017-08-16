@@ -140,13 +140,13 @@ class MultiBoxDetectionProp : public OperatorProperty {
     CHECK_EQ(lshape.ndim(), 2U) << "Provided: " << lshape;
     CHECK_EQ(ashape.ndim(), 3U) << "Provided: " << ashape;
     CHECK_EQ(cshape[2], ashape[1]) << "Number of anchors mismatch";
-    CHECK_EQ(cshape[2] * 4, lshape[1]) << "# anchors mismatch with # loc";
+    CHECK_EQ(cshape[2] * 5, lshape[1]) << "# anchors mismatch with # loc";
     CHECK_GT(ashape[1], 0U) << "Number of anchors must > 0";
     CHECK_EQ(ashape[2], 4U);
     TShape oshape = TShape(3);
     oshape[0] = cshape[0];
     oshape[1] = ashape[1];
-    oshape[2] = 6;  // [id, prob, xmin, ymin, xmax, ymax]
+    oshape[2] = 7;  // [id, prob, xmin, ymin, xmax, ymax, dist]
     out_shape->clear();
     out_shape->push_back(oshape);
     return true;

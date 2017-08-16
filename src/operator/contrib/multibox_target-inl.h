@@ -205,11 +205,11 @@ class MultiBoxTargetProp : public OperatorProperty {
     TShape lshape = in_shape->at(mboxtarget_enum::kLabel);
     CHECK_EQ(lshape.ndim(), 3) << "Label should be [batch-num_labels-(>=5)] tensor";
     CHECK_GT(lshape[1], 0) << "Padded label should > 0";
-    CHECK_GE(lshape[2], 5) << "Label width must >=5";
+    CHECK_EQ(lshape[2], 6) << "Label width should be 6: [cls-xmin-ymin-xmax-ymax-dist]";
     TShape pshape = in_shape->at(mboxtarget_enum::kClsPred);
     CHECK_EQ(pshape.ndim(), 3) << "Prediction: [nbatch-num_classes-num_anchors]";
     CHECK_EQ(pshape[2], ashape[1]) << "Number of anchors mismatch";
-    TShape loc_shape = Shape2(lshape[0], ashape.Size());  // batch - (num_box * 4)
+    TShape loc_shape = Shape2(lshape[0], ashape[1] * 5);  // batch - (num_box * 5)
     TShape lm_shape = loc_shape;
     TShape label_shape = Shape2(lshape[0], ashape[1]);  // batch - num_box
     out_shape->clear();

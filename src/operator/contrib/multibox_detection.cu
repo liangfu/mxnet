@@ -43,9 +43,9 @@ __global__ void DetectionForwardKernel(DType *out, const DType *cls_prob,
   const int nbatch = blockIdx.x;  // each block for each batch
   int index = threadIdx.x;
   __shared__ int valid_count;
-  out += nbatch * num_anchors * 6;
+  out += nbatch * num_anchors * 7;
   cls_prob += nbatch * num_anchors * num_classes;
-  loc_pred += nbatch * num_anchors * 4;
+  loc_pred += nbatch * num_anchors * 5;
 
   if (index == 0) {
     valid_count = 0;
@@ -70,9 +70,10 @@ __global__ void DetectionForwardKernel(DType *out, const DType *cls_prob,
     if (id > 0) {
       // valid class
       int pos = atomicAdd(&valid_count, 1);
-      out[pos * 6] = id - 1;  // restore original class id
-      out[pos * 6 + 1] = (id == 0 ? DType(-1) : score);
+      out[pos * 7] = id - 1;  // restore original class id
+      out[pos * 7 + 1] = (id == 0 ? DType(-1) : score);
       int offset = i * 4;
+      int offset_l = i * 5;
       DType al = anchors[offset];
       DType at = anchors[offset + 1];
       DType ar = anchors[offset + 2];
@@ -81,24 +82,28 @@ __global__ void DetectionForwardKernel(DType *out, const DType *cls_prob,
       DType ah = ab - at;
       DType ax = (al + ar) / 2.f;
       DType ay = (at + ab) / 2.f;
-      DType ox = loc_pred[offset] * vx * aw + ax;
-      DType oy = loc_pred[offset + 1] * vy * ah + ay;
-      DType ow = exp(loc_pred[offset + 2] * vw) * aw / 2;
-      DType oh = exp(loc_pred[offset + 3] * vh) * ah / 2;
+      DType ox = loc_pred[offset_l] * vx * aw + ax;
+      DType oy = loc_pred[offset_l + 1] * vy * ah + ay;
+      DType ow = exp(loc_pred[offset_l + 2] * vw) * aw / 2;
+      DType oh = exp(loc_pred[offset_l + 3] * vh) * ah / 2;
+      DType oz = loc_pred[offset_l + 4] * 0.1;
       DType xmin = ox - ow;
       DType ymin = oy - oh;
       DType xmax = ox + ow;
       DType ymax = oy + oh;
+      DType dist = oz;
       if (clip) {
         Clip(&xmin, DType(0), DType(1));
         Clip(&ymin, DType(0), DType(1));
         Clip(&xmax, DType(0), DType(1));
         Clip(&ymax, DType(0), DType(1));
+        Clip(&dist, DType(0), DType(1));
       }
-      out[pos * 6 + 2] = xmin;
-      out[pos * 6 + 3] = ymin;
-      out[pos * 6 + 4] = xmax;
-      out[pos * 6 + 5] = ymax;
+      out[pos * 7 + 2] = xmin;
+      out[pos * 7 + 3] = ymin;
+      out[pos * 7 + 4] = xmax;
+      out[pos * 7 + 5] = ymax;
+      out[pos * 7 + 6] = dist;
     }
   }
   __syncthreads();
@@ -108,7 +113,7 @@ __global__ void DetectionForwardKernel(DType *out, const DType *cls_prob,
 
   // descent sort according to scores
   const int size = valid_count;
-  temp_space += nbatch * num_anchors * 6;
+  temp_space += nbatch * num_anchors * 7;
   DType *src = out;
   DType *dst = temp_space;
   for (int width = 2; width < (size << 1); width <<= 1) {
@@ -123,16 +128,16 @@ __global__ void DetectionForwardKernel(DType *out, const DType *cls_prob,
       int i = start;
       int j = middle;
       for (int k = start; k < end; ++k) {
-        DType score_i = i < size ? src[i * 6 + 1] : DType(-1);
-        DType score_j = j < size ? src[j * 6 + 1] : DType(-1);
+        DType score_i = i < size ? src[i * 7 + 1] : DType(-1);
+        DType score_j = j < size ? src[j * 7 + 1] : DType(-1);
         if (i < middle && (j >= end || score_i > score_j)) {
-          for (int n = 0; n < 6; ++n) {
-            dst[k * 6 + n] = src[i * 6 + n];
+          for (int n = 0; n < 7; ++n) {
+            dst[k * 7 + n] = src[i * 7 + n];
           }
           ++i;
         } else {
-          for (int n = 0; n < 6; ++n) {
-            dst[k * 6 + n] = src[j * 6 + n];
+          for (int n = 0; n < 7; ++n) {
+            dst[k * 7 + n] = src[j * 7 + n];
           }
           ++j;
         }
@@ -147,7 +152,7 @@ __global__ void DetectionForwardKernel(DType *out, const DType *cls_prob,
 
   if (src == temp_space) {
     // copy from temp to out
-    for (int i = index; i < size * 6; i += blockDim.x) {
+    for (int i = index; i < size * 7; i += blockDim.x) {
       out[i] = temp_space[i];
     }
     __syncthreads();
@@ -158,24 +163,24 @@ __global__ void DetectionForwardKernel(DType *out, const DType *cls_prob,
   if (nms_topk > 0 && nms_topk < ntop) {
     ntop = nms_topk;
     for (int i = ntop + index; i < size; i += blockDim.x) {
-      out[i * 6] = -1;
+      out[i * 7] = -1;
     }
     __syncthreads();
   }
 
   // apply NMS
   for (int compare_pos = 0; compare_pos < ntop; ++compare_pos) {
-    DType compare_id = out[compare_pos * 6];
+    DType compare_id = out[compare_pos * 7];
     if (compare_id < 0) continue;  // not a valid positive detection, skip
-    DType *compare_loc_ptr = out + compare_pos * 6 + 2;
+    DType *compare_loc_ptr = out + compare_pos * 7 + 2;
     for (int i = compare_pos + index + 1; i < ntop; i += blockDim.x) {
-      DType class_id = out[i * 6];
+      DType class_id = out[i * 7];
       if (class_id < 0) continue;
       if (force_suppress || (class_id == compare_id)) {
         DType iou;
-        CalculateOverlap(compare_loc_ptr, out + i * 6 + 2, &iou);
+        CalculateOverlap(compare_loc_ptr, out + i * 7 + 2, &iou);
         if (iou >= nms_threshold) {
-          out[i * 6] = -1;
+          out[i * 7] = -1;
         }
       }
     }

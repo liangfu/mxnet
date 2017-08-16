@@ -270,8 +270,8 @@ __global__ void AssignTrainigTargets(DType *loc_target, DType *loc_mask,
                                      const float vx, const float vy,
                                      const float vw, const float vh) {
   const int nbatch = blockIdx.x;
-  loc_target += nbatch * num_anchors * 4;
-  loc_mask += nbatch * num_anchors * 4;
+  loc_target += nbatch * num_anchors * 5;
+  loc_mask += nbatch * num_anchors * 5;
   cls_target += nbatch * num_anchors;
   anchor_flags += nbatch * num_anchors;
   best_matches += nbatch * num_anchors;
@@ -284,10 +284,12 @@ __global__ void AssignTrainigTargets(DType *loc_target, DType *loc_mask,
       int offset_l = static_cast<int>(best_matches[i]) * label_width;
       cls_target[i] = labels[offset_l] + 1;  // 0 reserved for background
       int offset = i * 4;
-      loc_mask[offset] = 1;
-      loc_mask[offset + 1] = 1;
-      loc_mask[offset + 2] = 1;
-      loc_mask[offset + 3] = 1;
+      int offset_t = i * 5;
+      loc_mask[offset_t] = 1;
+      loc_mask[offset_t + 1] = 1;
+      loc_mask[offset_t + 2] = 1;
+      loc_mask[offset_t + 3] = 1;
+      loc_mask[offset_t + 4] = 1;
       // regression targets
       float al = anchors[offset];
       float at = anchors[offset + 1];
@@ -301,14 +303,16 @@ __global__ void AssignTrainigTargets(DType *loc_target, DType *loc_mask,
       float gt = labels[offset_l + 2];
       float gr = labels[offset_l + 3];
       float gb = labels[offset_l + 4];
+      float gz = labels[offset_l + 5];
       float gw = gr - gl;
       float gh = gb - gt;
       float gx = (gl + gr) * 0.5;
       float gy = (gt + gb) * 0.5;
-      loc_target[offset] = DType((gx - ax) / aw / vx);  // xmin
-      loc_target[offset + 1] = DType((gy - ay) / ah / vy);  // ymin
-      loc_target[offset + 2] = DType(log(gw / aw) / vw);  // xmax
-      loc_target[offset + 3] = DType(log(gh / ah) / vh);  // ymax
+      loc_target[offset_t] = DType((gx - ax) / aw / vx);  // xmin
+      loc_target[offset_t + 1] = DType((gy - ay) / ah / vy);  // ymin
+      loc_target[offset_t + 2] = DType(log(gw / aw) / vw);  // xmax
+      loc_target[offset_t + 3] = DType(log(gh / ah) / vh);  // ymax
+      loc_target[offset_t + 4] = DType(gz) / 0.1;  // dist
     } else if (anchor_flags[i] < 0.5 && anchor_flags[i] > -0.5) {
       // background
       cls_target[i] = 0;
