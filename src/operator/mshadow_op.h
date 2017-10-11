@@ -1,5 +1,23 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 /*!
- * Copyright (c) 2015 by Contributors
  * \file mshadow_op.h
  * \brief
  * \author Bing Xu
@@ -24,6 +42,8 @@ __constant__ const float PI = 3.14159265358979323846;
 const float PI = 3.14159265358979323846;
 using std::isnan;
 #endif
+using std::enable_if;
+using std::is_unsigned;
 
 /*! \brief identity Operation */
 struct identity {
@@ -58,6 +78,20 @@ struct negation {
   template<typename DType>
   MSHADOW_XINLINE static DType Map(DType a) {
     return DType(-a);
+  }
+};
+
+struct reciprocal {
+  template<typename DType>
+  MSHADOW_XINLINE static DType Map(DType a) {
+    return DType(1.0f/a);
+  }
+};
+
+struct reciprocal_grad {
+  template<typename DType>
+  MSHADOW_XINLINE static DType Map(DType a) {
+    return DType(-(DType(1.0f) / (a * a)));
   }
 };
 
@@ -445,8 +479,15 @@ struct abs {
 /*! \brief used for generate element of sign */
 struct sign {
   template<typename DType>
-  MSHADOW_XINLINE static DType Map(DType a) {
-    if (a < 0.0f) return DType(-1.0f);
+  MSHADOW_XINLINE static typename enable_if<!is_unsigned<DType>::value, DType>::type
+  Map(DType a) {
+    if (a < 0.0f) return DType(-DType(1.0f));
+    if (a > 0.0f) return DType(1.0f);
+    return DType(0.0f);
+  }
+  template<typename DType>
+  MSHADOW_XINLINE static typename enable_if<is_unsigned<DType>::value, DType>::type
+  Map(DType a) {
     if (a > 0.0f) return DType(1.0f);
     return DType(0.0f);
   }
@@ -566,7 +607,7 @@ struct square_root_grad {
   }
 };
 
-/*!\ \brief used for generate element sqrt */
+/*!\ \brief used for generate element rsqrt */
 struct reciprocal_square_root {
   template<typename DType>
   MSHADOW_XINLINE static DType Map(DType a) {
@@ -578,6 +619,36 @@ struct reciprocal_square_root_grad {
   template<typename DType>
   MSHADOW_XINLINE static DType Map(DType a) {
     return DType(-(DType(1.0f) / (DType(2.0f) * a * sqrtf(a))));
+  }
+};
+
+/*!\ \brief used for generate element cbrt */
+struct cube_root {
+  template<typename DType>
+  MSHADOW_XINLINE static DType Map(DType a) {
+    return DType(cbrtf(a));
+  }
+};
+
+struct cube_root_grad {
+  template<typename DType>
+  MSHADOW_XINLINE static DType Map(DType a) {
+    return DType(DType(1.0f) / ( DType(3.0f) * a * a));
+  }
+};
+
+/*!\ \brief used for generate element rcbrt */
+struct reciprocal_cube_root {
+  template<typename DType>
+  MSHADOW_XINLINE static DType Map(DType a) {
+    return DType(DType(1.0f)/cbrtf(a));
+  }
+};
+
+struct reciprocal_cube_root_grad {
+  template<typename DType>
+  MSHADOW_XINLINE static DType Map(DType a) {
+    return DType(-(DType(1.0f) / (DType(3.0f) * a * cbrtf(a))));
   }
 };
 
@@ -678,7 +749,8 @@ struct rdiv_grad {
 
 struct mod {
   template<typename DType>
-  MSHADOW_XINLINE static DType Map(DType a, DType b) {
+  MSHADOW_XINLINE static typename enable_if<!is_unsigned<DType>::value, DType>::type
+  Map(DType a, DType b) {
     if (b == DType(0)) {
       return DType(0);
     } else if (b < DType(0)) {
@@ -697,6 +769,15 @@ struct mod {
       } else {
         return DType(::fmod(static_cast<double>(a), static_cast<double>(b)));
       }
+    }
+  }
+  template<typename DType>
+  MSHADOW_XINLINE static typename enable_if<is_unsigned<DType>::value, DType>::type
+  Map(DType a, DType b) {
+    if (b == DType(0)) {
+      return DType(0);
+    } else {
+      return DType(::fmod(static_cast<double>(a), static_cast<double>(b)));
     }
   }
 };
@@ -783,7 +864,8 @@ MSHADOW_XINLINE mshadow::half::half2_t mod_rgrad::Map<mshadow::half::half2_t>
 
 struct rmod {
   template<typename DType>
-  MSHADOW_XINLINE static DType Map(DType a, DType b) {
+  MSHADOW_XINLINE static typename enable_if<!is_unsigned<DType>::value, DType>::type
+  Map(DType a, DType b) {
     if (a == DType(0)) {
       return DType(0);
     } else if (a < DType(0)) {
@@ -802,6 +884,15 @@ struct rmod {
       } else {
         return DType(::fmod(static_cast<double>(b), static_cast<double>(a)));
       }
+    }
+  }
+  template<typename DType>
+  MSHADOW_XINLINE static typename enable_if<is_unsigned<DType>::value, DType>::type
+  Map(DType a, DType b) {
+    if (a == DType(0)) {
+      return DType(0);
+    } else {
+      return DType(::fmod(static_cast<double>(b), static_cast<double>(a)));
     }
   }
 };
@@ -921,7 +1012,7 @@ MSHADOW_XINLINE double gammaln_grad::Map<double>(double a) {
 
 /* Smooth L1 Loss is a loss specific for R-CNN franchise training
  * Smooth L1 Loss function
- * f(x) = 0.5 * (sigma * x) ^ 2,     x < 1 / sigma^2
+ * f(x) = 0.5 * (sigma * x) ^ 2,     |x| < 1 / sigma^2
  *      = |x| - 0.5 / sigma / sigma, otherwise
  * When sigma = 1, it is equivalent to Huber Loss evaluated at
  * delta = 1.
@@ -944,7 +1035,7 @@ struct smooth_l1_loss {
 };  // struct smooth_l1_loss
 
 /* The derivative of smooth l1 loss is
- * f'(x) = sigma^2 * x, x < 1 / sigma^2
+ * f'(x) = sigma^2 * x, |x| < 1 / sigma^2
  *       = sign(x),     otherwise
  */
 struct smooth_l1_gradient {
@@ -969,6 +1060,11 @@ struct product {
   MSHADOW_XINLINE static void Reduce(volatile DType& dst, volatile DType src) { // NOLINT(*)
     dst *= src;
   }
+  /*! \brief do reduction into dst */
+  template<typename DType>
+  MSHADOW_XINLINE static void Reduce(volatile DType& dst, volatile DType src, volatile DType& none) { // NOLINT(*)
+    Reduce(dst, src);
+  }
   /*!
   *\brief calculate gradient of redres with respect to redsrc,
   * redres: reduced result, redsrc: one of reduction element
@@ -983,6 +1079,13 @@ struct product {
   template<typename DType>
   MSHADOW_XINLINE static void SetInitValue(DType &initv) { // NOLINT(*)
     initv = 1;
+  }
+  /*!
+  *\brief set the initial value during reduction
+  */
+  template<typename DType>
+  MSHADOW_XINLINE static void SetInitValue(DType &initv, DType &none) { // NOLINT(*)
+    SetInitValue(initv);
   }
 };
 
@@ -1015,19 +1118,17 @@ struct nansum {
   /*! \brief do reduction into dst */
   template<typename DType>
   MSHADOW_XINLINE static void Reduce(volatile DType& dst, volatile DType src) { // NOLINT(*)
-    if (isnan_typed::IsNan(dst)) {
-      if (isnan_typed::IsNan(src)) {
-        dst = DType(0);
-      } else {
-        dst = src;
-      }
-    } else {
-      if (isnan_typed::IsNan(src)) {
-        dst = dst;
-      } else {
-        dst += src;
-      }
-    }
+    if (isnan_typed::IsNan(src)) return;
+    dst += src;
+  }
+  /*! \brief do reduction into dst */
+  template<typename DType>
+  MSHADOW_XINLINE static void Reduce(volatile DType& dst, volatile DType src, volatile DType& residual) { // NOLINT(*)
+    if (isnan_typed::IsNan(src)) return;
+    DType y = src - residual;
+    DType t = dst + y;
+    residual = (t - dst) - y;
+    dst = t;
   }
   /*!
   *\brief set the initial value during reduction
@@ -1035,6 +1136,14 @@ struct nansum {
   template<typename DType>
   MSHADOW_XINLINE static void SetInitValue(DType & initv) { // NOLINT(*)
       initv = 0;
+  }
+  /*!
+   *\brief set the initial value during reduction
+   */
+  template<typename DType>
+  MSHADOW_XINLINE static void SetInitValue(DType &initv, DType &residual) { // NOLINT(*)
+    SetInitValue(initv);
+    residual = 0;
   }
 };
 
@@ -1050,19 +1159,13 @@ struct nanprod {
   /*! \brief do reduction into dst */
   template<typename DType>
   MSHADOW_XINLINE static void Reduce(volatile DType& dst, volatile DType src) { // NOLINT(*)
-    if (isnan_typed::IsNan(dst)) {
-      if (isnan_typed::IsNan(src)) {
-        dst = DType(1);
-      } else {
-        dst = src;
-      }
-    } else {
-      if (isnan_typed::IsNan(src)) {
-        dst = dst;
-      } else {
-        dst *= src;
-      }
-    }
+    if (isnan_typed::IsNan(src)) return;
+    dst *= src;
+  }
+  /*! \brief do reduction into dst */
+  template<typename DType>
+  MSHADOW_XINLINE static void Reduce(volatile DType& dst, volatile DType src, volatile DType& none) { // NOLINT(*)
+    Reduce(dst, src);
   }
   /*!
   *\brief set the initial value during reduction
@@ -1070,6 +1173,13 @@ struct nanprod {
   template<typename DType>
   MSHADOW_XINLINE static void SetInitValue(DType & initv) { // NOLINT(*)
     initv = 1;
+  }
+  /*!
+  *\brief set the initial value during reduction
+  */
+  template<typename DType>
+  MSHADOW_XINLINE static void SetInitValue(DType &initv, DType &none) { // NOLINT(*)
+    SetInitValue(initv);
   }
 };
 
