@@ -42,34 +42,6 @@ struct SortElemDescend {
 };
 
 template<typename DType>
-inline void TransformLocations(DType *out, const DType *anchors,
-                               const DType *loc_pred, const bool clip,
-                               const float vx, const float vy,
-                               const float vw, const float vh) {
-  // transform predictions to detection results
-  DType al = anchors[0];
-  DType at = anchors[1];
-  DType ar = anchors[2];
-  DType ab = anchors[3];
-  DType aw = ar - al;
-  DType ah = ab - at;
-  DType ax = (al + ar) / 2.f;
-  DType ay = (at + ab) / 2.f;
-  DType px = loc_pred[0];
-  DType py = loc_pred[1];
-  DType pw = loc_pred[2];
-  DType ph = loc_pred[3];
-  DType ox = px * vx * aw + ax;
-  DType oy = py * vy * ah + ay;
-  DType ow = exp(pw * vw) * aw / 2;
-  DType oh = exp(ph * vh) * ah / 2;
-  out[0] = clip ? std::max(DType(0), std::min(DType(1), ox - ow)) : (ox - ow);
-  out[1] = clip ? std::max(DType(0), std::min(DType(1), oy - oh)) : (oy - oh);
-  out[2] = clip ? std::max(DType(0), std::min(DType(1), ox + ow)) : (ox + ow);
-  out[3] = clip ? std::max(DType(0), std::min(DType(1), oy + oh)) : (oy + oh);
-}
-
-template<typename DType>
 inline DType CalculateOverlap(const DType *a, const DType *b) {
   DType w = std::max(DType(0), std::min(a[2], b[2]) - std::max(a[0], b[0]));
   DType h = std::max(DType(0), std::min(a[3], b[3]) - std::max(a[1], b[1]));
@@ -95,10 +67,14 @@ inline void MultiBoxDetectionForward(const Tensor<cpu, 3, DType> &out,
   const int num_anchors = cls_prob.size(2);
   const int num_batches = cls_prob.size(0);
   const DType *p_anchor = anchors.dptr_;
+  const DType vx = variances[0];
+  const DType vy = variances[1];
+  const DType vw = variances[2];
+  const DType vh = variances[3];
   for (int nbatch = 0; nbatch < num_batches; ++nbatch) {
     const DType *p_cls_prob = cls_prob.dptr_ + nbatch * num_classes * num_anchors;
-    const DType *p_loc_pred = loc_pred.dptr_ + nbatch * num_anchors * 4;
-    DType *p_out = out.dptr_ + nbatch * num_anchors * 6;
+    const DType *p_loc_pred = loc_pred.dptr_ + nbatch * num_anchors * 5;
+    DType *p_out = out.dptr_ + nbatch * num_anchors * 7;
     int valid_count = 0;
     for (int i = 0; i < num_anchors; ++i) {
       // find the predicted class id and probability
@@ -115,13 +91,38 @@ inline void MultiBoxDetectionForward(const Tensor<cpu, 3, DType> &out,
         id = 0;
       }
       if (id > 0) {
-        // [id, prob, xmin, ymin, xmax, ymax]
-        p_out[valid_count * 6] = id - 1;  // remove background, restore original id
-        p_out[valid_count * 6 + 1] = (id == 0 ? DType(-1) : score);
+        // [id, prob, xmin, ymin, xmax, ymax, dist]
+        p_out[valid_count * 7] = id - 1;  // remove background, restore original id
+        p_out[valid_count * 7 + 1] = (id == 0 ? DType(-1) : score);
         int offset = i * 4;
-        TransformLocations(p_out + valid_count * 6 + 2, p_anchor + offset,
-          p_loc_pred + offset, clip, variances[0], variances[1],
-          variances[2], variances[3]);
+        int offset_l = i * 5;
+        // TransformLocations(p_out + valid_count * 6 + 2, p_anchor + offset,
+        //                    p_loc_pred + offset, clip, variances[0], variances[1],
+        //                    variances[2], variances[3]);
+        DType al = p_anchor[offset];
+        DType at = p_anchor[offset + 1];
+        DType ar = p_anchor[offset + 2];
+        DType ab = p_anchor[offset + 3];
+        DType aw = ar - al;
+        DType ah = ab - at;
+        DType ax = (al + ar) / 2.f;
+        DType ay = (at + ab) / 2.f;
+        DType px = p_loc_pred[offset_l];
+        DType py = p_loc_pred[offset_l + 1];
+        DType pw = p_loc_pred[offset_l + 2];
+        DType ph = p_loc_pred[offset_l + 3];
+        DType pz = p_loc_pred[offset_l + 4];
+        DType ox = px * vx * aw + ax;
+        DType oy = py * vy * ah + ay;
+        DType ow = exp(pw * vw) * aw / 2;
+        DType oh = exp(ph * vh) * ah / 2;
+        DType oz = pz * 0.1;
+        DType * out_p = p_out + valid_count * 7 + 2;
+        out_p[0] = clip ? std::max(DType(0), std::min(DType(1), ox - ow)) : (ox - ow);
+        out_p[1] = clip ? std::max(DType(0), std::min(DType(1), oy - oh)) : (oy - oh);
+        out_p[2] = clip ? std::max(DType(0), std::min(DType(1), ox + ow)) : (ox + ow);
+        out_p[3] = clip ? std::max(DType(0), std::min(DType(1), oy + oh)) : (oy + oh);
+        out_p[4] = clip ? std::max(DType(0), std::min(DType(1), oz)) : (oz);
         ++valid_count;
       }
     }  // end iter num_anchors
@@ -134,26 +135,26 @@ inline void MultiBoxDetectionForward(const Tensor<cpu, 3, DType> &out,
     std::vector<SortElemDescend<DType>> sorter;
     sorter.reserve(valid_count);
     for (int i = 0; i < valid_count; ++i) {
-      sorter.push_back(SortElemDescend<DType>(p_out[i * 6 + 1], i));
+      sorter.push_back(SortElemDescend<DType>(p_out[i * 7 + 1], i));
     }
     std::stable_sort(sorter.begin(), sorter.end());
     // re-order output
-    DType *ptemp = temp_space.dptr_ + nbatch * num_anchors * 6;
+    DType *ptemp = temp_space.dptr_ + nbatch * num_anchors * 7;
     int nkeep = static_cast<int>(sorter.size());
     if (nms_topk > 0 && nms_topk < nkeep) {
       nkeep = nms_topk;
     }
     for (int i = 0; i < nkeep; ++i) {
-      for (int j = 0; j < 6; ++j) {
-        p_out[i * 6 + j] = ptemp[sorter[i].index * 6 + j];
+      for (int j = 0; j < 7; ++j) {
+        p_out[i * 7 + j] = ptemp[sorter[i].index * 7 + j];
       }
     }
     // apply nms
     for (int i = 0; i < valid_count; ++i) {
-      int offset_i = i * 6;
+      int offset_i = i * 7;
       if (p_out[offset_i] < 0) continue;  // skip eliminated
       for (int j = i + 1; j < valid_count; ++j) {
-        int offset_j = j * 6;
+        int offset_j = j * 7;
         if (p_out[offset_j] < 0) continue;  // skip eliminated
         if (force_suppress || (p_out[offset_i] == p_out[offset_j])) {
           // when foce_suppress == true or class_id equals

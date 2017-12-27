@@ -43,6 +43,7 @@ inline void AssignLocTargets(const DType *anchor, const DType *l, DType *dst,
   float gt = *(l+1);
   float gr = *(l+2);
   float gb = *(l+3);
+  float gz = *(l+4);
   float gw = gr - gl;
   float gh = gb - gt;
   float gx = (gl + gr) * 0.5;
@@ -51,6 +52,7 @@ inline void AssignLocTargets(const DType *anchor, const DType *l, DType *dst,
   *(dst+1) = DType((gy - ay) / ah / vy);
   *(dst+2) = DType(std::log(gw / aw) / vw);
   *(dst+3) = DType(std::log(gh / ah) / vh);
+  *(dst+4) = DType(gz) / 0.1;
 }
 
 struct SortElemDescend {
@@ -247,8 +249,8 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
       }
 
       // assign training targets
-      DType *p_loc_target = loc_target.dptr_ + nbatch * num_anchors * 4;
-      DType *p_loc_mask = loc_mask.dptr_ + nbatch * num_anchors * 4;
+      DType *p_loc_target = loc_target.dptr_ + nbatch * num_anchors * 5;
+      DType *p_loc_mask = loc_mask.dptr_ + nbatch * num_anchors * 5;
       DType *p_cls_target = cls_target.dptr_ + nbatch * num_anchors;
       for (int i = 0; i < num_anchors; ++i) {
         if (anchor_flags[i] == 1) {
@@ -257,21 +259,24 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
           // 0 reserved for background
           *(p_cls_target + i) = *(p_label + label_width * max_matches[i].second) + 1;
           int offset = i * 4;
-          *(p_loc_mask + offset) = 1;
-          *(p_loc_mask + offset + 1) = 1;
-          *(p_loc_mask + offset + 2) = 1;
-          *(p_loc_mask + offset + 3) = 1;
-          AssignLocTargets(p_anchor + i * 4,
-            p_label + label_width * max_matches[i].second + 1, p_loc_target + offset,
+          int offset_l = i * 5;
+          p_loc_mask[offset_l] = 1;
+          p_loc_mask[offset_l + 1] = 1;
+          p_loc_mask[offset_l + 2] = 1;
+          p_loc_mask[offset_l + 3] = 1;
+          p_loc_mask[offset_l + 4] = 1;
+          AssignLocTargets(p_anchor + offset,
+            p_label + label_width * max_matches[i].second + 1, p_loc_target + offset_l,
             variances[0], variances[1], variances[2], variances[3]);
         } else if (anchor_flags[i] == 0) {
           // negative sample
           *(p_cls_target + i) = 0;
-          int offset = i * 4;
-          *(p_loc_mask + offset) = 0;
-          *(p_loc_mask + offset + 1) = 0;
-          *(p_loc_mask + offset + 2) = 0;
-          *(p_loc_mask + offset + 3) = 0;
+          int offset_l = i * 5;
+          p_loc_mask[offset_l] = 0;
+          p_loc_mask[offset_l + 1] = 0;
+          p_loc_mask[offset_l + 2] = 0;
+          p_loc_mask[offset_l + 3] = 0;
+          p_loc_mask[offset_l + 4] = 0;
         }
       }  // end iterate anchors
     }
