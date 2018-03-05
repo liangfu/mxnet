@@ -106,7 +106,44 @@ static void ExecutorMonitor_callback(const char* name, NDArrayHandle handle, voi
 
 %}
 
+%{
+
+/* this is an adaptation of Python/bltinmodule.c's builtin_zip() */
+XS(py_zip) {
+    dXSARGS;
+    I32 i;
+    I32 len = -1;
+    AV *l[items];
+
+    for(i = 0; i < items; i++) {
+        AV *av = (AV *)SvRV(ST(i));
+        I32 thislen;
+
+        if(SvTYPE(av) != SVt_PVAV)
+            croak("zip argument#%d must be an array", i);
+        thislen = av_len(av) + 1;
+        if(len < 0 || thislen < len)
+            len = thislen;
+        l[i] = av;
+    }
+    EXTEND(SP, len);
+    for(i = 0; i < len; i++) {
+        I32 j;
+        SV *next[items];
+
+        for(j = 0; j < items; j++) {
+            SV **sv = av_fetch(l[j], i, 0);
+            next[j] = sv ? *sv : &PL_sv_undef;
+        }
+        ST(i) = sv_2mortal(newRV_noinc((SV *)av_make(items, next)));
+    }
+    XSRETURN(len);
+}
+
+%}
+
 %init %{
+    newXS(SWIG_prefix "py_zip", py_zip, (char *)__FILE__);
     /* These SWIG_TypeClientData() calls might break in the future, but
      * %rename should work on these types before that happens. */
     SWIG_TypeClientData(SWIGTYPE_p_MXNDArray, (void *)"NDArrayHandle");
@@ -224,13 +261,13 @@ int MXRandomSeed(int seed);
 int MXNotifyShutdown();
 /*!
  * \brief Set up configuration of profiler
- * \param mode indicate the working mode of profiler,
- *  record anly symbolic operator when mode == 0,
- *  record all operator when mode == 1
- * \param filename where to save trace file
+ * \param num_params Number of parameters
+ * \param keys array of parameter keys
+ * \param vals array of parameter values
  * \return 0 when success, -1 when failure happens.
  */
-int MXSetProfilerConfig(int mode, const char* filename);
+int MXSetProfilerConfig(int num_params, const char* const* keys, const char* const* vals);
+
 /*!
  * \brief Set up state of profiler
  * \param state indicate the working state of profiler,
@@ -241,7 +278,7 @@ int MXSetProfilerConfig(int mode, const char* filename);
 int MXSetProfilerState(int state);
 
 /*! \brief Save profile and stop profiler */
-int MXDumpProfile();
+int MXDumpProfile(int finished);
 
 /*! \brief Set the number of OMP threads to use */
 int MXSetNumOMPThreads(int thread_num);

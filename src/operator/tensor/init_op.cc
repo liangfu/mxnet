@@ -18,6 +18,7 @@
  */
 
 /*!
+ *  Copyright (c) 2016 by Contributors
  * \file init_op.cc
  * \brief CPU Implementation of init op
  */
@@ -28,7 +29,9 @@ namespace mxnet {
 namespace op {
 
 DMLC_REGISTER_PARAMETER(InitOpParam);
+DMLC_REGISTER_PARAMETER(InitOpWithScalarParam);
 DMLC_REGISTER_PARAMETER(RangeParam);
+DMLC_REGISTER_PARAMETER(EyeParam);
 
 
 NNVM_REGISTER_OP(_zeros)
@@ -43,6 +46,16 @@ NNVM_REGISTER_OP(_zeros)
 .set_attr<FComputeEx>("FComputeEx<cpu>", FillComputeZerosEx<cpu>)
 .add_arguments(InitOpParam::__FIELDS__());
 
+NNVM_REGISTER_OP(_eye)
+.describe("Return a 2-D array with ones on the diagonal and zeros elsewhere.")
+.set_num_inputs(0)
+.set_num_outputs(1)
+.set_attr_parser(ParamParser<EyeParam>)
+.set_attr<nnvm::FInferShape>("FInferShape", InitEyeShape<EyeParam>)
+.set_attr<nnvm::FInferType>("FInferType", InitType<EyeParam>)
+.set_attr<FCompute>("FCompute<cpu>", EyeFill<cpu>)
+.add_arguments(EyeParam::__FIELDS__());
+
 NNVM_REGISTER_OP(_ones)
 .describe("fill target with ones")
 .set_num_inputs(0)
@@ -52,6 +65,16 @@ NNVM_REGISTER_OP(_ones)
 .set_attr<nnvm::FInferType>("FInferType", InitType<InitOpParam>)
 .set_attr<FCompute>("FCompute<cpu>", FillCompute<cpu, 1>)
 .add_arguments(InitOpParam::__FIELDS__());
+
+NNVM_REGISTER_OP(_full)
+  .describe("fill target with a scalar value")
+  .set_num_inputs(0)
+  .set_num_outputs(1)
+  .set_attr_parser(ParamParser<InitOpWithScalarParam>)
+  .set_attr<nnvm::FInferShape>("FInferShape", InitShape<InitOpWithScalarParam>)
+  .set_attr<nnvm::FInferType>("FInferType", InitType<InitOpWithScalarParam>)
+  .set_attr<FCompute>("FCompute<cpu>", InitFillWithScalarCompute<cpu>)
+.add_arguments(InitOpWithScalarParam::__FIELDS__());
 
 NNVM_REGISTER_OP(_arange)
 .describe("Return evenly spaced values within a given interval. Similar to Numpy")
